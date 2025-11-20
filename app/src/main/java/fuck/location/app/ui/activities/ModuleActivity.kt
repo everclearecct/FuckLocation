@@ -107,7 +107,13 @@ class ModuleActivity : AppCompatActivity() {
         val displayNameComparator = ApplicationInfo.DisplayNameComparator(this.packageManager)
 
         packageInfos = this.packageManager.getInstalledPackages(0)
-            .parallelStream().sorted { lhs, rhs ->
+            .parallelStream()
+            .filter { packageInfo ->
+                // Filter out system apps, only show third-party apps
+                val appInfo = packageInfo.applicationInfo
+                appInfo != null && (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0
+            }
+            .sorted { lhs, rhs ->
                 if (storedList != null) {
                     val lChecked = storedList.contains(lhs.packageName)
                     val rChecked = storedList.contains(rhs.packageName)

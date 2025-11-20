@@ -12,7 +12,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapter
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+// Removed XposedBridge import to prevent ClassNotFoundException in non-Xposed environment
+// import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import fuck.location.app.ui.models.FakeLocation
 import fuck.location.app.ui.models.FakeLocationHistory
@@ -36,6 +37,18 @@ class ConfigGateway private constructor() {
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private lateinit var dataDir: String
     private lateinit var customContext: Context
+
+    /**
+     * Check if we're running in an Xposed environment
+     */
+    private fun isXposedEnvironment(): Boolean {
+        return try {
+            Class.forName("de.robv.android.xposed.XposedBridge")
+            true
+        } catch (e: ClassNotFoundException) {
+            false
+        }
+    }
 
     /* For getting started in framework. In default, it judges whether a
      * packageName is in whiteList.json or not.
@@ -68,7 +81,7 @@ class ConfigGateway private constructor() {
     fun hookWillChangeBeEnabled(lpparam: XC_LoadPackage.LoadPackageParam) {
         val clazz = lpparam.classLoader.loadClass("com.android.server.am.ActivityManagerService")
 
-        XposedBridge.log("FL: [debug !!] Finding method")
+        SafeLogger.log("FL: [debug !!] Finding method")
         findAllMethods(clazz) {
             name == "setProcessMemoryTrimLevel" && isPublic
         }.hookMethod {
@@ -89,7 +102,7 @@ class ConfigGateway private constructor() {
 
                     return@before
                 } else {
-                    XposedBridge.log("FL: [debug !!] Not with magic number, do nothing.")
+                    SafeLogger.log("FL: [debug !!] Not with magic number, do nothing.")
                 }
             }
         }
@@ -100,7 +113,7 @@ class ConfigGateway private constructor() {
     fun hookGetTagForIntentSender(lpparam: XC_LoadPackage.LoadPackageParam) {
         val clazz = lpparam.classLoader.loadClass("com.android.server.pm.PackageManagerService")
 
-        XposedBridge.log("FL: [debug !!] Finding method in getInstallerPackageName")
+        SafeLogger.log("FL: [debug !!] Finding method in getInstallerPackageName")
         findAllMethods(clazz) {
             name == "getInstallerPackageName"
         }.hookMethod {
@@ -136,7 +149,7 @@ class ConfigGateway private constructor() {
                 }
             }
         } catch (e: Exception) {
-            XposedBridge.log("FL: [Track samsung !!] No whitelist file found. You may need to create one first $e")
+            SafeLogger.log("FL: [Track samsung !!] No whitelist file found. You may need to create one first $e")
             e.printStackTrace()
         }
 
@@ -191,7 +204,7 @@ class ConfigGateway private constructor() {
 
             param.result = json
         } catch (e: Exception) {
-            XposedBridge.log("FL: [debug !!] Fuck with exceptions! $e")
+            SafeLogger.log("FL: [debug !!] Fuck with exceptions! $e")
 
             param.result = "{\"x\":0.0, \"y\":0.0, \"eci\":0, \"pci\":0, \"tac\":0, \"earfcn\":0, \"bandwidth\":0}"
         }
@@ -257,29 +270,98 @@ class ConfigGateway private constructor() {
     // For caller outside of framework
     @SuppressLint("PrivateApi")
     fun inWhitelist(packageName: String): Boolean {
-        return universalAPICaller(packageName, 0) as Boolean
+        return try {
+            if (isXposedEnvironment()) {
+                universalAPICaller(packageName, 0) as Boolean
+            } else {
+                // Return false when not in Xposed environment (no hooks active)
+                false
+            }
+        } catch (e: Exception) {
+            SafeLogger.log("FL: Failed to check whitelist for $packageName. Defaulting to false.")
+            false
+        }
     }
 
     @ExperimentalStdlibApi
     fun readPackageList(): List<String>? {
+        SafeLogger.log("FL: readPackageList called")
+
         val jsonAdapter: JsonAdapter<List<String>> = moshi.adapter()
         val json = try {
-            universalAPICaller("None", 2) as String
+            // Check if we're in Xposed environment before making Xposed calls
+            if (isXposedEnvironment()) {
+                SafeLogger.log("FL: In Xposed environment, using universalAPICaller")
+                universalAPICaller("None", 2) as String
+            } else {
+                SafeLogger.log("FL: Not in Xposed environment, reading directly from file")
+                return readPackageListDirectly()
+            }
         } catch (e: Exception) {
-            XposedBridge.log("FL: Failed to read package list. Fallback to []")
+            SafeLogger.log("FL: Failed to read package list via universalAPICaller. Fallback to []: $e")
             "[]"
         }
 
-        return jsonAdapter.fromJson(json)
+        SafeLogger.log("FL: Read package list JSON: $json")
+        val result = jsonAdapter.fromJson(json)
+        SafeLogger.log("FL: Parsed package list: $result")
+        return result
+    }
+
+    /**
+     * Direct file reading method for non-Xposed environment
+     */
+    @ExperimentalStdlibApi
+    private fun readPackageListDirectly(): MutableList<String> {
+        try {
+            // Try to get the data directory
+            val dataDir = if (::customContext.isInitialized) {
+                customContext.filesDir.absolutePath
+            } else {
+                // Fallback to a default path
+                "/data/data/fuck.location"
+            }
+
+            SafeLogger.log("FL: Reading from data directory: $dataDir")
+
+            val jsonFile = File("$dataDir/whiteList.json")
+
+            if (!jsonFile.exists()) {
+                SafeLogger.log("FL: whitelist file does not exist: ${jsonFile.absolutePath}")
+                return mutableListOf()
+            }
+
+            val json = jsonFile.readText()
+            SafeLogger.log("FL: Read file content: $json")
+
+            val jsonAdapter: JsonAdapter<List<String>> = moshi.adapter()
+            val result = jsonAdapter.fromJson(json)
+
+            SafeLogger.log("FL: Parsed result: $result")
+
+            // Return mutable list
+            return result?.toMutableList() ?: mutableListOf()
+
+        } catch (e: Exception) {
+            SafeLogger.log("FL: Exception when reading whitelist file: $e")
+            e.printStackTrace()
+            return mutableListOf()
+        }
     }
 
     @ExperimentalStdlibApi
     fun readFakeLocation(): FakeLocation {
         val jsonAdapter: JsonAdapter<FakeLocation> = moshi.adapter()
         val json = try {
-            universalAPICaller("None", 4) as String
+            // Check if we're in Xposed environment before making Xposed calls
+            if (isXposedEnvironment()) {
+                universalAPICaller("None", 4) as String
+            } else {
+                // Return default values when not in Xposed environment
+                return FakeLocation(0.0, 0.0, 0.0, 0, 0, 0, 0, 0)
+            }
         } catch (e: Exception) {
-            XposedBridge.log("FL: Failed to read fake location. Fallback to {\"x\":0.0, \"y\":0.0, \"eci\":0, \"pci\":0, \"tac\":0, \"earfcn\":0, \"bandwidth\":0}")
+            SafeLogger.log("FL: Failed to read fake location. Fallback to {\"x\":0.0, \"y\":0.0, \"eci\":0, \"pci\":0, \"tac\":0, \"earfcn\":0, \"bandwidth\":0}")
             "{\"x\":0.0, \"y\":0.0, \"eci\":0, \"pci\":0, \"tac\":0, \"earfcn\":0, \"bandwidth\":0}"
         }
 
@@ -314,7 +396,59 @@ class ConfigGateway private constructor() {
         val jsonAdapter: JsonAdapter<List<String>> = moshi.adapter()
         val json: String = jsonAdapter.toJson(list)
 
-        universalAPICaller(json, 1)
+        SafeLogger.log("FL: writePackageList called with ${list.size} items: $list")
+
+        try {
+            if (isXposedEnvironment()) {
+                SafeLogger.log("FL: In Xposed environment, using universalAPICaller")
+                universalAPICaller(json, 1)
+            } else {
+                SafeLogger.log("FL: Not in Xposed environment, writing directly to file")
+                writePackageListDirectly(json)
+            }
+            SafeLogger.log("FL: writePackageList completed successfully")
+        } catch (e: Exception) {
+            SafeLogger.log("FL: writePackageList failed: $e")
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Direct file writing method for non-Xposed environment
+     */
+    private fun writePackageListDirectly(json: String) {
+        try {
+            // Try to get the data directory
+            val dataDir = if (::customContext.isInitialized) {
+                customContext.filesDir.absolutePath
+            } else {
+                // Fallback to a default path
+                "/data/data/fuck.location"
+            }
+
+            SafeLogger.log("FL: Using data directory: $dataDir")
+
+            val jsonFile = File("$dataDir/whiteList.json")
+
+            // Create directory if it doesn't exist
+            val jsonFileDirectory = jsonFile.parentFile
+            if (jsonFileDirectory != null && !jsonFileDirectory.exists()) {
+                jsonFileDirectory.mkdirs()
+                SafeLogger.log("FL: Created directory: ${jsonFileDirectory.absolutePath}")
+            }
+
+            // Write the JSON to file
+            jsonFile.writeText(json)
+            SafeLogger.log("FL: Successfully wrote whitelist to: ${jsonFile.absolutePath}")
+            SafeLogger.log("FL: File content: $json")
+
+        } catch (e: SecurityException) {
+            SafeLogger.log("FL: SecurityException when writing whitelist file: $e")
+            throw e
+        } catch (e: Exception) {
+            SafeLogger.log("FL: Exception when writing whitelist file: $e")
+            throw e
+        }
     }
 
     @ExperimentalStdlibApi
