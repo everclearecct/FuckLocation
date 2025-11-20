@@ -1,9 +1,13 @@
+import org.jetbrains.kotlin.backend.wasm.ir2wasm.bind
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
 }
 
 android {
+    namespace = "fuck.location"
+
     compileSdk = 36
     defaultConfig {
         applicationId = "fuck.location"
@@ -16,6 +20,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         viewBinding = true
     }
 
@@ -45,16 +50,13 @@ dependencies {
     implementation("com.google.android.material:material:1.5.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.3")
     implementation("androidx.fragment:fragment-ktx:$fragmentVersion")
-    testImplementation("junit:junit:4.+")
-    androidTestImplementation("androidx.test.ext:junit:1.1.3")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.4.0")
 
     implementation("com.afollestad.material-dialogs:core:3.3.0")
     implementation("com.afollestad.material-dialogs:bottomsheets:3.3.0")
     implementation("com.drakeet.about:about:2.5.0")
     implementation("com.drakeet.multitype:multitype:4.3.0")
 
-    // implementation("com.github.idanatz:OneAdapter:2.1.1") // Temporarily disabled due to SSL issues
+    implementation("com.github.idanatz:OneAdapter:2.1.6") // Temporarily disabled due to SSL issues
     implementation("com.scwang.smart:refresh-layout-kernel:2.0.3")
     implementation("com.scwang.smart:refresh-header-material:2.0.3")
 

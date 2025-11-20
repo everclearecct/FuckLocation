@@ -121,10 +121,11 @@ class ModuleActivity : AppCompatActivity() {
                     displayNameComparator.compare(lhs.applicationInfo, rhs.applicationInfo)
                 }
             }.map {
-                val packageName = it.applicationInfo.packageName
-                val icon = if (storedList?.contains(packageName) == true) checkCircle else it.applicationInfo.loadIcon(packageManager)
+                val appInfo = it.applicationInfo
+                val packageName = appInfo?.packageName ?: ""
+                val icon = if (storedList?.contains(packageName) == true) checkCircle else appInfo?.loadIcon(packageManager) ?: checkCircle
 
-                AppListModel(it.applicationInfo.loadLabel(packageManager).toString(),
+                AppListModel(appInfo?.loadLabel(packageManager)?.toString() ?: "",
                     packageName,
                     icon)
             }.collect(Collectors.toList())
