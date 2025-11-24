@@ -17,7 +17,7 @@ jobs:
         name: Get project FuckLocation
         run: echo "::set-output name=PROJECT::$(cat project-to-build)"
       - name: Clone project
-        run: git clone --depth=1 ${{ steps.get-project.outputs.PROJECT }} https://github.com/Mikotwa/FuckLocation.git
+        run: git clone --depth=1 ${{ steps.get-project.outputs.PROJECT }} https://github.com/everclearecct/FuckLocation.git
       - name: Build the app
         working-directory: ./FuckLocation
         run: |
